@@ -2,12 +2,21 @@
 
 class TweetFeeder {
     
+    /* Constants */
+    const HOME_TIMELINE = 0;
+    const USER_TIMELINE = 1;
+    const MENTIONS_TIMELINE = 2;
+    const RETWEETS_OF_ME = 3;
+    
+    private $tweetType;
+    
     private $user;
     private $action;
     private $secret;
     private $database;
     
-    private $tweets;
+    private $token;
+    private $context;
     
     public function __construct($args) {
         $this->action = $args["action"];
@@ -47,25 +56,63 @@ class TweetFeeder {
     }
     
     public function initialize() {
+        /* TODO: Get user token from database. */
+        $token = "";
+        
         if ($this->action == "user_timeline") {
-            $url = API_ADDRESS . 'statuses/user_timeline.json';
+            $this->tweetType = TweetFeeder::USER_TIMELINE;
+            
+            $nonce = $this->generateRandomString(32);
+            $timestamp = time();
+            
+            $parameterString = 'oauth_consumer_key=' . $this->secret->consumerSecret . '&' .
+                               'oauth_nonce=' . $nonce . '&' .
+                               'oauth_signature_method=HMAC-SHA1&' .
+                               'oauth_timestamp=' . $timestamp . '' .
+                               'oauth_token=' . $token .
+                               'oauth_version=1.1';
+            
+            $baseSignature  = 'GET&' . rawurlencode($url) . '&' . rawurlencode($parameterString);
             
             $authorizationString = 'Authorization: OAuth ' . 
-                'oauth_consumer_key="' . '", ' .
-                'oauth_nonce="' . $this->generateRandomString(32) . '", ' .
-                'oauth_signature="' . hash_hmac("sha1", $url, $this->secret->consumerSecret) . '", ' . 
-                'oauth_signature_method="' . '", ' .
-                'oauth_timestamp="' . '", ' .
-                'oauth_token="' . '", ' .
+                'oauth_consumer_key="' . $this->secret->consumerSecret . '", ' .
+                'oauth_nonce="' . $nonce . '", ' .
+                'oauth_signature="' . base64_encode(hash_hmac("sha1", $baseSignature, $this->secret->consumerSecret)) . '", ' . 
+                'oauth_signature_method="HMAC-SHA1", ' .
+                'oauth_timestamp="' . $timestamp . '", ' .
+                'oauth_token="' . $token . '", ' .
                 'oauth_version="1.0"'
                 ;
             
+            /* Finally, send the request! */
+            
+            $options = array(
+                'http' => array(
+                    'method' => "GET",
+                    'header' => $authorizationString . '\r\n'
+                )
+            );
+            
+            $this->context = stream_context_create($options);
         }
     }
     
+    public function getResponse($url) {
+        $results = file_get_contents($url, false, $this->context);
+        return $results;
+    }
+    
     public function feed() {
+        $this->initialize();
+        
         /* Allow Cross-Origin Resource Sharing */
         header("Access-Control-Allow-Origin: *");
-        
+        header("Content-type: application/json");
+ 
+        switch ($this->tweetType) {
+            case TweetFeeder::USER_TIMELINE:
+                echo $this->getResponse(API_ADDRESS + 'statuses/user_timeline.json');
+                break;
+        }    
     }
 }
